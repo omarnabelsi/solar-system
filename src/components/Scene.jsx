@@ -1,76 +1,115 @@
-import { useMemo, useRef, useState } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
-import { Environment, Sparkles, Stars } from '@react-three/drei'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Environment, Stars } from '@react-three/drei'
 import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import CameraController from './CameraController'
 import Controls from './Controls'
+import SpaceshipControls from './SpaceshipControls'
 import SolarSystem from './SolarSystem'
+import { useSafeTexture } from '../hooks/useSafeTexture'
 import { HOME_VIEW } from '../3d/sceneData'
+
+function NebulaCloudLayer() {
+  const cloudRef = useRef(null)
+  const nebulaMap = useMemo(() => createNebulaTexture(), [])
+
+  useFrame((_, delta) => {
+    if (cloudRef.current) {
+      cloudRef.current.rotation.y -= 0.00065 * delta
+    }
+  })
+
+  useEffect(() => {
+    return () => {
+      if (nebulaMap) {
+        nebulaMap.dispose()
+      }
+    }
+  }, [nebulaMap])
+
+  return (
+    <mesh ref={cloudRef} scale={[-1, 1, 1]} renderOrder={-2}>
+      <sphereGeometry args={[2140, 64, 64]} />
+      <meshBasicMaterial
+        map={nebulaMap || undefined}
+        side={THREE.BackSide}
+        transparent
+        opacity={0.34}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+        toneMapped={false}
+      />
+    </mesh>
+  )
+}
 
 function createNebulaTexture() {
   const canvas = document.createElement('canvas')
   canvas.width = 2048
   canvas.height = 1024
-
   const context = canvas.getContext('2d')
+
   if (!context) {
     return null
   }
 
-  const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height)
-  gradient.addColorStop(0, '#040715')
-  gradient.addColorStop(0.35, '#1a1333')
-  gradient.addColorStop(0.72, '#12233f')
-  gradient.addColorStop(1, '#060914')
-  context.fillStyle = gradient
-  context.fillRect(0, 0, canvas.width, canvas.height)
+  context.clearRect(0, 0, canvas.width, canvas.height)
 
-  for (let i = 0; i < 12; i += 1) {
+  for (let i = 0; i < 16; i += 1) {
     const cx = Math.random() * canvas.width
     const cy = Math.random() * canvas.height
-    const radius = 120 + Math.random() * 280
-    const nebula = context.createRadialGradient(cx, cy, 20, cx, cy, radius)
-    nebula.addColorStop(0, 'rgba(145, 96, 255, 0.26)')
-    nebula.addColorStop(0.55, 'rgba(71, 154, 255, 0.18)')
-    nebula.addColorStop(1, 'rgba(0, 0, 0, 0)')
-    context.fillStyle = nebula
-    context.fillRect(cx - radius, cy - radius, radius * 2, radius * 2)
-  }
+    const radius = 180 + Math.random() * 340
 
-  for (let i = 0; i < 1800; i += 1) {
-    const x = Math.random() * canvas.width
-    const y = Math.random() * canvas.height
-    const size = Math.random() * 2.2
-    const alpha = 0.15 + Math.random() * 0.8
-    context.fillStyle = 'rgba(255, 255, 255, ' + alpha + ')'
-    context.fillRect(x, y, size, size)
+    const gradient = context.createRadialGradient(cx, cy, 10, cx, cy, radius)
+    gradient.addColorStop(0, 'rgba(94, 167, 255, 0.22)')
+    gradient.addColorStop(0.45, 'rgba(140, 93, 255, 0.14)')
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
+
+    context.fillStyle = gradient
+    context.fillRect(cx - radius, cy - radius, radius * 2, radius * 2)
   }
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
   texture.wrapS = THREE.RepeatWrapping
   texture.wrapT = THREE.ClampToEdgeWrapping
+  texture.repeat.set(1.2, 1)
   texture.needsUpdate = true
 
   return texture
 }
 
-function NebulaSkybox() {
+function StarfieldSky() {
   const skyRef = useRef(null)
-  const nebulaTexture = useMemo(() => createNebulaTexture(), [])
+  const { gl } = useThree()
+  const starfieldMap = useSafeTexture('/textures/space/galaxy_starfield.png')
+
+  useEffect(() => {
+    if (!starfieldMap) {
+      return
+    }
+
+    starfieldMap.colorSpace = THREE.SRGBColorSpace
+    starfieldMap.anisotropy = Math.min(16, gl.capabilities.getMaxAnisotropy())
+    starfieldMap.wrapS = THREE.RepeatWrapping
+    starfieldMap.wrapT = THREE.ClampToEdgeWrapping
+    starfieldMap.repeat.set(1.5, 1)
+    starfieldMap.needsUpdate = true
+  }, [starfieldMap, gl])
 
   useFrame((_, delta) => {
     if (skyRef.current) {
-      skyRef.current.rotation.y += 0.004 * delta
+      skyRef.current.rotation.y += 0.0016 * delta
     }
   })
 
   return (
-    <mesh ref={skyRef} scale={[-1, 1, 1]}>
-      <sphereGeometry args={[1900, 72, 72]} />
+    <mesh ref={skyRef} scale={[-1, 1, 1]} renderOrder={-1}>
+      <sphereGeometry args={[2300, 64, 64]} />
       <meshBasicMaterial
-        map={nebulaTexture || undefined}
+        map={starfieldMap || undefined}
+        color={starfieldMap ? '#ffffff' : '#0b1229'}
         side={THREE.BackSide}
         toneMapped={false}
       />
@@ -79,18 +118,32 @@ function NebulaSkybox() {
 }
 
 function Scene({
-  selectedObjectId,
-  onSelectObject,
+  selectedPlanet,
+  onSelectPlanet,
   cameraMode,
   warpEnabled,
+  isTraveling,
   onTravelStateChange,
+  onCameraModeChange,
 }) {
   const controlsRef = useRef(null)
   const trackedObjectsRef = useRef({})
   const [isTransitioning, setIsTransitioning] = useState(false)
+  const selectedObjectId = selectedPlanet?.id || null
+  const isSimulationPaused = cameraMode === 'planetFocus'
+  const isSelectionLocked = isTransitioning || isTraveling || cameraMode === 'tour'
+
+  const handleTransitionStateChange = useCallback(
+    (nextState) => {
+      setIsTransitioning(nextState)
+      onTravelStateChange?.(nextState)
+    },
+    [onTravelStateChange],
+  )
 
   return (
     <Canvas
+      shadows
       camera={{
         position: HOME_VIEW.position,
         fov: 42,
@@ -98,50 +151,71 @@ function Scene({
         far: 5000,
       }}
       dpr={[1, 1.5]}
-      gl={{ antialias: true, powerPreference: 'high-performance' }}
+      gl={{ antialias: false, powerPreference: 'high-performance', stencil: false }}
+      onCreated={({ gl: renderer }) => {
+        renderer.outputColorSpace = THREE.SRGBColorSpace
+        renderer.toneMapping = THREE.ACESFilmicToneMapping
+        renderer.toneMappingExposure = 1
+      }}
       onPointerMissed={() => {
-        if (cameraMode !== 'flight') {
-          onSelectObject(null)
+        if (cameraMode === 'orbit' && !isSelectionLocked) {
+          onSelectPlanet(null)
         }
       }}
     >
       <color attach="background" args={['#02030d']} />
 
-      <NebulaSkybox />
-      <Stars radius={1800} depth={900} count={12000} factor={7} saturation={0} fade speed={0.28} />
-      <Sparkles count={120} speed={0.15} size={5} scale={420} color="#9fb7ff" opacity={0.6} />
+      <NebulaCloudLayer />
+      <StarfieldSky />
+      <Stars radius={2400} depth={1300} count={18000} factor={7.5} saturation={0} fade speed={0.08} />
 
-      <ambientLight intensity={0.25} />
-      <directionalLight position={[120, 80, -30]} intensity={0.45} color="#9bb8ff" />
-      <Environment preset="night" blur={0.65} background={false} />
+      <ambientLight intensity={0.06} />
+      <directionalLight
+        position={[180, 120, -40]}
+        intensity={0.15}
+        color="#9bb8ff"
+      />
+      <Environment preset="night" blur={0.5} background={false} intensity={0.34} />
 
       <SolarSystem
         selectedObjectId={selectedObjectId}
-        onSelectObject={onSelectObject}
+        onSelectObject={onSelectPlanet}
         trackedObjectsRef={trackedObjectsRef}
+        cameraMode={cameraMode}
+        isPaused={isSimulationPaused}
+        selectionLocked={isSelectionLocked}
       />
 
       <Controls
         controlsRef={controlsRef}
         cameraMode={cameraMode}
-        warpEnabled={warpEnabled}
         isTransitioning={isTransitioning}
+        selectedPlanet={selectedPlanet}
+      />
+
+      <SpaceshipControls
+        enabled={cameraMode === 'spaceship' && !isSelectionLocked}
+        warpEnabled={warpEnabled}
       />
 
       <CameraController
-        selectedObjectId={selectedObjectId}
+        selectedPlanet={selectedPlanet}
         trackedObjectsRef={trackedObjectsRef}
         controlsRef={controlsRef}
         cameraMode={cameraMode}
         homeView={HOME_VIEW}
-        onTransitionStateChange={(nextState) => {
-          setIsTransitioning(nextState)
-          onTravelStateChange?.(nextState)
-        }}
+        onTransitionStateChange={handleTransitionStateChange}
+        onCameraModeChange={onCameraModeChange}
       />
 
-      <EffectComposer>
-        <Bloom mipmapBlur intensity={1.15} luminanceThreshold={0.24} radius={0.84} />
+      <EffectComposer multisampling={0} depthBuffer stencilBuffer={false}>
+        <Bloom
+          mipmapBlur
+          intensity={2.05}
+          luminanceThreshold={0.18}
+          luminanceSmoothing={0.34}
+          radius={0.92}
+        />
         <Vignette offset={0.14} darkness={0.72} eskil={false} />
       </EffectComposer>
     </Canvas>

@@ -5,7 +5,7 @@ import {
 } from './spaceKnowledge'
 
 const HELP_MESSAGE =
-  'Try commands like "go to Mars", "start guided tour", "follow mode", "flight mode", "warp on", or ask "tell me about Saturn".'
+  'Try commands like "go to Mars", "start guided tour", "spaceship mode", "planet focus", "warp on", or ask "tell me about Saturn".'
 
 function makeReplyWithFact(objectEntry) {
   return `${objectEntry.name}: ${objectEntry.shortDescription} ${objectEntry.lore}`
@@ -105,20 +105,20 @@ export async function runAssistantPrompt({ prompt, selectedObjectId }) {
     }
   }
 
-  if (/ship mode|flight mode|first person|cockpit/.test(lowerPrompt)) {
-    commands.push({ type: 'set-camera-mode', mode: 'flight' })
+  if (/ship mode|flight mode|free mode|first person|cockpit/.test(lowerPrompt)) {
+    commands.push({ type: 'set-camera-mode', mode: 'spaceship' })
     return {
       assistantMessage:
-        'Flight mode enabled. Use W A S D to move, Space and Ctrl for vertical thrust, and Shift for boost.',
+        'Spaceship mode enabled. Use W A S D to move, Space and Ctrl for vertical thrust, and Shift for boost.',
       commands,
     }
   }
 
-  if (/follow mode|track mode/.test(lowerPrompt)) {
-    commands.push({ type: 'set-camera-mode', mode: 'follow' })
+  if (/follow mode|track mode|planet focus|focus mode/.test(lowerPrompt)) {
+    commands.push({ type: 'set-camera-mode', mode: 'planetFocus' })
     return {
       assistantMessage:
-        'Follow mode enabled. Select a target and the camera will trail it smoothly.',
+        'Planet focus mode enabled. Select a target and the camera will lock to it for close inspection.',
       commands,
     }
   }
@@ -156,7 +156,7 @@ export async function runAssistantPrompt({ prompt, selectedObjectId }) {
 
     if (target) {
       commands.push({ type: 'select-object', id: target.id })
-      commands.push({ type: 'set-camera-mode', mode: 'orbit' })
+      commands.push({ type: 'set-camera-mode', mode: 'planetFocus' })
       return {
         assistantMessage: `Navigating to ${target.name}. Cinematic approach engaged.`,
         commands,
@@ -207,7 +207,7 @@ export async function runAssistantPrompt({ prompt, selectedObjectId }) {
 
   return {
     assistantMessage:
-      'Mission control online. I can explain space objects, navigate the camera, toggle flight or follow mode, and run guided tours. ' +
+      'Mission control online. I can explain space objects, navigate the camera, toggle spaceship or focus modes, and run guided tours. ' +
       HELP_MESSAGE,
     commands: [],
   }

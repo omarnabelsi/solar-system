@@ -1,6 +1,5 @@
 import { useCallback, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import * as THREE from 'three'
 import PlanetBody from './PlanetBody'
 import Spacecraft from './Spacecraft'
 import { PLANET_CONFIG, SPACECRAFT_CONFIG } from './sceneData'
@@ -133,11 +132,6 @@ function SolarSystemSystem({ selectedObjectId, onSelectObject, trackedObjectRefs
           />
         </group>
       </OrbitLayer>
-
-      <gridHelper
-        args={[280, 72, new THREE.Color('#1f2538'), new THREE.Color('#0f1322')]}
-        position={[0, -30, 0]}
-      />
     </group>
   )
 }

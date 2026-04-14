@@ -1,8 +1,42 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { runAssistantPrompt } from './ai/assistantEngine'
-import { TOUR_SEQUENCE } from './ai/spaceKnowledge'
 import Scene from './components/Scene'
 import UI from './components/UI'
+import { startTour as createTourController } from './systems/TourSystem'
+
+function normalizeCameraMode(mode) {
+  const normalizedMode = (mode || '').toLowerCase()
+
+  if (
+    normalizedMode === 'flight'
+    || normalizedMode === 'ship'
+    || normalizedMode === 'free'
+    || normalizedMode === 'spaceship'
+    || normalizedMode === 'cockpit'
+  ) {
+    return 'spaceship'
+  }
+
+  if (
+    normalizedMode === 'planetfocus'
+    || normalizedMode === 'planet-focus'
+    || normalizedMode === 'focus'
+    || normalizedMode === 'follow'
+    || normalizedMode === 'travel'
+  ) {
+    return 'planetFocus'
+  }
+
+  if (normalizedMode === 'tour') {
+    return 'tour'
+  }
+
+  if (normalizedMode === 'orbit') {
+    return 'orbit'
+  }
+
+  return 'orbit'
+}
 
 function createMessage(role, text) {
   return {
@@ -13,14 +47,15 @@ function createMessage(role, text) {
 }
 
 function App() {
-  const [selectedObjectId, setSelectedObjectId] = useState(null)
-  const [cameraMode, setCameraMode] = useState('orbit')
+  const [selectedPlanet, setSelectedPlanet] = useState(null)
+  const [mode, setMode] = useState('orbit')
   const [warpEnabled, setWarpEnabled] = useState(false)
   const [isTraveling, setIsTraveling] = useState(false)
   const [isAiThinking, setIsAiThinking] = useState(false)
   const [isTourActive, setIsTourActive] = useState(false)
-  const [tourStep, setTourStep] = useState(0)
-  const tourStepRef = useRef(0)
+  const tourControllerRef = useRef(null)
+  const tourArrivalTokenRef = useRef('')
+  const selectedObjectId = selectedPlanet?.id || null
 
   const [aiMessages, setAiMessages] = useState([
     createMessage(
@@ -30,40 +65,106 @@ function App() {
   ])
 
   useEffect(() => {
-    if (!isTourActive) {
-      return
-    }
-
-    const nextTarget = TOUR_SEQUENCE[tourStepRef.current % TOUR_SEQUENCE.length]
-    setSelectedObjectId(nextTarget)
-    setCameraMode('orbit')
-
-    const timerId = window.setTimeout(() => {
-      tourStepRef.current = (tourStepRef.current + 1) % TOUR_SEQUENCE.length
-      setTourStep(tourStepRef.current)
-    }, 9000)
-
     return () => {
-      window.clearTimeout(timerId)
+      tourControllerRef.current?.stopTour()
+      tourControllerRef.current = null
     }
-  }, [isTourActive, tourStep])
+  }, [])
 
   const appendMessage = useCallback((role, text) => {
     setAiMessages((previous) => [...previous.slice(-20), createMessage(role, text)])
   }, [])
 
+  const stopTour = useCallback((resetView = true) => {
+    tourControllerRef.current?.stopTour()
+    tourControllerRef.current = null
+    tourArrivalTokenRef.current = ''
+    setIsTourActive(false)
+
+    if (resetView) {
+      setMode('orbit')
+      setSelectedPlanet(null)
+      setIsTraveling(false)
+    }
+  }, [])
+
+  const startGuidedTour = useCallback(() => {
+    if (isTraveling) {
+      return
+    }
+
+    stopTour(false)
+    setIsTourActive(true)
+    setMode('tour')
+    setSelectedPlanet(null)
+    tourArrivalTokenRef.current = ''
+
+    const controller = createTourController({
+      dwellTimeMs: 2400,
+      onVisit: (targetId) => {
+        setSelectedPlanet({ id: targetId })
+        setMode('tour')
+        tourArrivalTokenRef.current = ''
+      },
+      onComplete: () => {
+        setIsTourActive(false)
+        setMode('orbit')
+        setSelectedPlanet(null)
+        setIsTraveling(false)
+        tourControllerRef.current = null
+        tourArrivalTokenRef.current = ''
+      },
+    })
+
+    tourControllerRef.current = controller
+    controller.begin()
+  }, [isTraveling, stopTour])
+
+  useEffect(() => {
+    if (!isTourActive || mode !== 'tour' || isTraveling || !selectedPlanet?.id || !tourControllerRef.current) {
+      return
+    }
+
+    const token = `${selectedPlanet.id}:${tourControllerRef.current.getCurrentIndex()}`
+    if (tourArrivalTokenRef.current === token) {
+      return
+    }
+
+    tourArrivalTokenRef.current = token
+    tourControllerRef.current.notifyArrived()
+  }, [isTourActive, mode, isTraveling, selectedPlanet?.id])
+
   const applyAssistantCommands = useCallback((commands) => {
     commands.forEach((command) => {
       if (command.type === 'select-object') {
-        setSelectedObjectId(command.id)
-        setIsTourActive(false)
+        stopTour(false)
+        setSelectedPlanet({ id: command.id })
+        setMode('planetFocus')
       }
 
       if (command.type === 'set-camera-mode') {
-        setCameraMode(command.mode)
-        if (command.mode !== 'orbit') {
-          setIsTourActive(false)
+        const nextMode = normalizeCameraMode(command.mode)
+
+        if (nextMode === 'tour') {
+          startGuidedTour()
+          return
         }
+
+        stopTour(false)
+
+        if (nextMode === 'spaceship') {
+          setSelectedPlanet(null)
+          setMode('spaceship')
+          return
+        }
+
+        if (nextMode === 'planetFocus') {
+          setMode('planetFocus')
+          return
+        }
+
+        setSelectedPlanet(null)
+        setMode('orbit')
       }
 
       if (command.type === 'set-warp') {
@@ -71,16 +172,14 @@ function App() {
       }
 
       if (command.type === 'start-tour') {
-        tourStepRef.current = 0
-        setTourStep(0)
-        setIsTourActive(true)
+        startGuidedTour()
       }
 
       if (command.type === 'stop-tour') {
-        setIsTourActive(false)
+        stopTour(true)
       }
     })
-  }, [])
+  }, [startGuidedTour, stopTour])
 
   const handleSendPrompt = useCallback(async (prompt) => {
     appendMessage('user', prompt)
@@ -99,31 +198,90 @@ function App() {
     }
   }, [appendMessage, applyAssistantCommands, selectedObjectId])
 
-  const handleSelectObject = useCallback((objectId) => {
-    setSelectedObjectId(objectId)
-    if (objectId) {
-      setIsTourActive(false)
+  const handleSelectObject = useCallback((objectId, payload) => {
+    if (isTraveling) {
+      return
     }
-  }, [])
+
+    if (!objectId) {
+      setSelectedPlanet(null)
+      setMode('orbit')
+      return
+    }
+
+    stopTour(false)
+    setSelectedPlanet(payload ? { id: objectId, ...payload } : { id: objectId })
+    setMode('planetFocus')
+  }, [isTraveling, stopTour])
+
+  const handleCameraModeChange = useCallback((nextMode) => {
+    const normalizedMode = normalizeCameraMode(nextMode)
+
+    if (normalizedMode === 'tour') {
+      startGuidedTour()
+      return
+    }
+
+    stopTour(false)
+
+    if (normalizedMode === 'spaceship') {
+      setSelectedPlanet(null)
+      setMode('spaceship')
+      return
+    }
+
+    if (normalizedMode === 'planetFocus') {
+      setMode('planetFocus')
+      return
+    }
+
+    setSelectedPlanet(null)
+    setMode('orbit')
+  }, [startGuidedTour, stopTour])
+
+  const handleToggleSpaceshipMode = useCallback(() => {
+    stopTour(false)
+
+    if (mode === 'spaceship') {
+      setMode('orbit')
+      return
+    }
+
+    setSelectedPlanet(null)
+    setMode('spaceship')
+  }, [mode, stopTour])
 
   const handleCloseSelection = useCallback(() => {
-    setSelectedObjectId(null)
-    setCameraMode('orbit')
-    setIsTourActive(false)
-  }, [])
+    setSelectedPlanet(null)
+    setMode('orbit')
+    setIsTraveling(false)
+    if (isTourActive) {
+      stopTour(false)
+    }
+  }, [isTourActive, stopTour])
+
+  const handleStartTour = useCallback(() => {
+    startGuidedTour()
+  }, [startGuidedTour])
+
+  const handleStopTour = useCallback(() => {
+    stopTour(true)
+  }, [stopTour])
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-slate-950">
       <Scene
-        selectedObjectId={selectedObjectId}
-        onSelectObject={handleSelectObject}
-        cameraMode={cameraMode}
+        selectedPlanet={selectedPlanet}
+        onSelectPlanet={handleSelectObject}
+        cameraMode={mode}
         warpEnabled={warpEnabled}
+        isTraveling={isTraveling}
         onTravelStateChange={setIsTraveling}
+        onCameraModeChange={handleCameraModeChange}
       />
       <UI
         selectedObjectId={selectedObjectId}
-        cameraMode={cameraMode}
+        cameraMode={mode}
         warpEnabled={warpEnabled}
         isTourActive={isTourActive}
         aiMessages={aiMessages}
@@ -131,24 +289,11 @@ function App() {
         isAiThinking={isAiThinking}
         onCloseSelection={handleCloseSelection}
         onSelectObject={handleSelectObject}
-        onCameraModeChange={(mode) => {
-          setCameraMode(mode)
-          if (mode !== 'orbit') {
-            setIsTourActive(false)
-          }
-        }}
+        onCameraModeChange={handleCameraModeChange}
+        onToggleSpaceshipMode={handleToggleSpaceshipMode}
         onWarpToggle={setWarpEnabled}
-        onTourToggle={(enabled) => {
-          if (enabled) {
-            tourStepRef.current = 0
-            setTourStep(0)
-            setIsTourActive(true)
-            setCameraMode('orbit')
-            return
-          }
-
-          setIsTourActive(false)
-        }}
+        onStartTour={handleStartTour}
+        onStopTour={handleStopTour}
         onSendPrompt={handleSendPrompt}
       />
     </main>
