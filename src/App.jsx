@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { runAssistantPrompt } from './ai/assistantEngine'
 import { TOUR_SEQUENCE } from './ai/spaceKnowledge'
-import SpaceScene from './3d/SpaceScene'
-import UI from './ui/UI'
+import Scene from './components/Scene'
+import UI from './components/UI'
 
 function createMessage(role, text) {
   return {
@@ -17,6 +17,7 @@ function App() {
   const [cameraMode, setCameraMode] = useState('orbit')
   const [warpEnabled, setWarpEnabled] = useState(false)
   const [isTraveling, setIsTraveling] = useState(false)
+  const [isAiThinking, setIsAiThinking] = useState(false)
   const [isTourActive, setIsTourActive] = useState(false)
   const [tourStep, setTourStep] = useState(0)
   const tourStepRef = useRef(0)
@@ -47,11 +48,11 @@ function App() {
     }
   }, [isTourActive, tourStep])
 
-  const appendMessage = (role, text) => {
+  const appendMessage = useCallback((role, text) => {
     setAiMessages((previous) => [...previous.slice(-20), createMessage(role, text)])
-  }
+  }, [])
 
-  const applyAssistantCommands = (commands) => {
+  const applyAssistantCommands = useCallback((commands) => {
     commands.forEach((command) => {
       if (command.type === 'select-object') {
         setSelectedObjectId(command.id)
@@ -60,6 +61,9 @@ function App() {
 
       if (command.type === 'set-camera-mode') {
         setCameraMode(command.mode)
+        if (command.mode !== 'orbit') {
+          setIsTourActive(false)
+        }
       }
 
       if (command.type === 'set-warp') {
@@ -76,36 +80,41 @@ function App() {
         setIsTourActive(false)
       }
     })
-  }
+  }, [])
 
-  const handleSendPrompt = (prompt) => {
+  const handleSendPrompt = useCallback(async (prompt) => {
     appendMessage('user', prompt)
+    setIsAiThinking(true)
 
-    const response = runAssistantPrompt({
-      prompt,
-      selectedObjectId,
-    })
+    try {
+      const response = await runAssistantPrompt({
+        prompt,
+        selectedObjectId,
+      })
 
-    appendMessage('assistant', response.assistantMessage)
-    applyAssistantCommands(response.commands)
-  }
+      appendMessage('assistant', response.assistantMessage)
+      applyAssistantCommands(response.commands)
+    } finally {
+      setIsAiThinking(false)
+    }
+  }, [appendMessage, applyAssistantCommands, selectedObjectId])
 
-  const handleSelectObject = (objectId) => {
+  const handleSelectObject = useCallback((objectId) => {
     setSelectedObjectId(objectId)
     if (objectId) {
       setIsTourActive(false)
     }
-  }
+  }, [])
 
-  const handleCloseSelection = () => {
+  const handleCloseSelection = useCallback(() => {
     setSelectedObjectId(null)
     setCameraMode('orbit')
     setIsTourActive(false)
-  }
+  }, [])
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-slate-950">
-      <SpaceScene
+      <Scene
         selectedObjectId={selectedObjectId}
         onSelectObject={handleSelectObject}
         cameraMode={cameraMode}
@@ -119,6 +128,7 @@ function App() {
         isTourActive={isTourActive}
         aiMessages={aiMessages}
         isTraveling={isTraveling}
+        isAiThinking={isAiThinking}
         onCloseSelection={handleCloseSelection}
         onSelectObject={handleSelectObject}
         onCameraModeChange={(mode) => {

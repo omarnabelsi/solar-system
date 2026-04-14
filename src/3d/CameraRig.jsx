@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import gsap from 'gsap'
 import * as THREE from 'three'
@@ -31,7 +31,7 @@ function CameraRig({
     [homeView.target],
   )
 
-  const resolveTargetState = () => {
+  const resolveTargetState = useCallback(() => {
     const trackedObject = selectedObjectId ? trackedObjectRefs.current?.[selectedObjectId] : null
 
     if (!trackedObject?.node) {
@@ -52,7 +52,7 @@ function CameraRig({
       target: tempTargetRef.current.clone(),
       cameraPosition: desiredCamera,
     }
-  }
+  }, [selectedObjectId, trackedObjectRefs, homeTarget, homePosition, cameraOffset])
 
   useEffect(() => {
     const controls = controlsRef.current
@@ -138,6 +138,7 @@ function CameraRig({
     controlsRef,
     homePosition,
     homeTarget,
+    resolveTargetState,
     onTravelStateChange,
     trackedObjectRefs,
   ])

@@ -1,32 +1,24 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import * as THREE from 'three'
+import {
+  isTravelRequired,
+  resolveDestination,
+  travelToPlanet,
+  updateFollowCamera,
+} from '../systems/cameraSystem'
 
 function CameraController({
-  selectedPlanet,
+  selectedObjectId,
+  trackedObjectsRef,
   controlsRef,
-  onTravelStateChange,
+  cameraMode,
   homeView,
+  onTransitionStateChange,
 }) {
   const { camera } = useThree()
 
-  const destinationPositionRef = useRef(new THREE.Vector3())
-  const destinationTargetRef = useRef(new THREE.Vector3())
-  const isTravelingRef = useRef(false)
-
-  const homePosition = useMemo(
-    () => new THREE.Vector3().fromArray(homeView.position),
-    [homeView.position],
-  )
-  const homeTarget = useMemo(
-    () => new THREE.Vector3().fromArray(homeView.target),
-    [homeView.target],
-  )
-
-  const offsetDirection = useMemo(
-    () => new THREE.Vector3(1, 0.42, 1.35).normalize(),
-    [],
-  )
+  const transitionRef = useRef(null)
+  const transitioningRef = useRef(false)
 
   useEffect(() => {
     const controls = controlsRef.current
@@ -34,70 +26,96 @@ function CameraController({
       return
     }
 
-    if (selectedPlanet) {
-      destinationTargetRef.current.fromArray(selectedPlanet.position)
-
-      const offsetDistance = Math.max(selectedPlanet.size * 8, 18)
-      destinationPositionRef.current
-        .copy(destinationTargetRef.current)
-        .addScaledVector(offsetDirection, offsetDistance)
-    } else {
-      destinationTargetRef.current.copy(homeTarget)
-      destinationPositionRef.current.copy(homePosition)
+    if (transitionRef.current) {
+      transitionRef.current.kill()
+      transitionRef.current = null
     }
 
-    const positionNeedsTravel =
-      camera.position.distanceTo(destinationPositionRef.current) > 0.2
-    const targetNeedsTravel =
-      controls.target.distanceTo(destinationTargetRef.current) > 0.08
-    const shouldTravel = positionNeedsTravel || targetNeedsTravel
+    if (cameraMode === 'flight') {
+      controls.enabled = false
+      transitioningRef.current = false
+      onTransitionStateChange?.(false)
+      return
+    }
 
-    isTravelingRef.current = shouldTravel
-    controls.enabled = !shouldTravel
-    onTravelStateChange?.(shouldTravel)
+    const destination = resolveDestination({
+      selectedObjectId,
+      trackedObjectsRef,
+      homeView,
+    })
 
-    if (!shouldTravel) {
-      controls.target.copy(destinationTargetRef.current)
+    if (!isTravelRequired({ camera, controls, destination })) {
+      controls.target.copy(destination.target)
+      controls.enabled = true
       controls.update()
+      transitioningRef.current = false
+      onTransitionStateChange?.(false)
+      return
+    }
+
+    transitionRef.current = travelToPlanet({
+      camera,
+      controls,
+      targetPosition: destination.target,
+      targetRadius: destination.radius || 2,
+      duration: destination.hasObject ? 1.85 : 1.45,
+      onStart: () => {
+        controls.enabled = false
+        transitioningRef.current = true
+        onTransitionStateChange?.(true)
+      },
+      onComplete: ({ cameraPosition, target }) => {
+        camera.position.copy(cameraPosition)
+        controls.target.copy(target)
+        controls.enabled = cameraMode !== 'flight'
+        controls.update()
+        transitioningRef.current = false
+        onTransitionStateChange?.(false)
+      },
+    })
+
+    return () => {
+      if (transitionRef.current) {
+        transitionRef.current.kill()
+        transitionRef.current = null
+      }
     }
   }, [
-    selectedPlanet,
-    controlsRef,
-    onTravelStateChange,
-    offsetDirection,
+    selectedObjectId,
+    cameraMode,
     camera,
-    homePosition,
-    homeTarget,
+    controlsRef,
+    trackedObjectsRef,
+    homeView,
+    onTransitionStateChange,
   ])
 
   useFrame((_, delta) => {
     const controls = controlsRef.current
-    if (!controls) {
+    if (!controls || cameraMode === 'flight') {
       return
     }
 
-    if (!isTravelingRef.current) {
-      controls.update()
-      return
+    if (cameraMode === 'follow' && !transitioningRef.current && selectedObjectId) {
+      const destination = resolveDestination({
+        selectedObjectId,
+        trackedObjectsRef,
+        homeView,
+      })
+
+      if (destination.hasObject) {
+        updateFollowCamera({
+          camera,
+          controls,
+          destination,
+          delta,
+        })
+        return
+      }
     }
 
-    const positionAlpha = 1 - Math.exp(-delta * 2.5)
-    const targetAlpha = 1 - Math.exp(-delta * 4.2)
-
-    camera.position.lerp(destinationPositionRef.current, positionAlpha)
-    controls.target.lerp(destinationTargetRef.current, targetAlpha)
-    controls.update()
-
-    const positionArrived = camera.position.distanceTo(destinationPositionRef.current) < 0.2
-    const targetArrived = controls.target.distanceTo(destinationTargetRef.current) < 0.08
-
-    if (positionArrived && targetArrived) {
-      camera.position.copy(destinationPositionRef.current)
-      controls.target.copy(destinationTargetRef.current)
-      controls.enabled = true
+    if (!transitioningRef.current) {
       controls.update()
-      isTravelingRef.current = false
-      onTravelStateChange?.(false)
     }
   })
 
