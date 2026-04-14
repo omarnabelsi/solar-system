@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(75, 118, 255, 0.2), transparent 45%),
+    radial-gradient(circle at 80% 10%, rgba(158, 95, 255, 0.18), transparent 42%),
+    #02030d;
+}
+
+* {
+  box-sizing: border-box;
+}
