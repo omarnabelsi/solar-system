@@ -146,6 +146,7 @@ function Planet({
   })
 
   const hasEmissiveData = Boolean(textures.emissiveMap || planet.textures?.emissiveColor)
+  const baseSurfaceColor = planet.surfaceColors?.[0] || '#9aa8bc'
   const baseEmissiveIntensity = hasEmissiveData ? (planet.textures?.emissiveIntensity || 0.14) : 0
   const emissiveIntensity = hasEmissiveData
     ? isFocused
@@ -187,6 +188,7 @@ function Planet({
         >
           <sphereGeometry args={[planet.radius, 96, 96]} />
           <meshStandardMaterial
+            color={baseSurfaceColor}
             map={textures.map || undefined}
             normalMap={textures.normalMap || undefined}
             normalScale={textures.normalMap ? normalScale : undefined}

@@ -201,6 +201,7 @@ function Earth({
         >
           <sphereGeometry args={[planet.radius, 96, 96]} />
           <meshStandardMaterial
+            color={planet.surfaceColors?.[0] || '#3e6db8'}
             map={dayMap}
             roughness={0.76}
             metalness={0.03}

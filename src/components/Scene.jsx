@@ -10,6 +10,8 @@ import SolarSystem from './SolarSystem'
 import { useSafeTexture } from '../hooks/useSafeTexture'
 import { HOME_VIEW } from '../3d/sceneData'
 
+const ENABLE_POSTPROCESSING = import.meta.env.PROD
+
 function NebulaCloudLayer() {
   const cloudRef = useRef(null)
   const nebulaMap = useMemo(() => createNebulaTexture(), [])
@@ -35,9 +37,9 @@ function NebulaCloudLayer() {
         map={nebulaMap || undefined}
         side={THREE.BackSide}
         transparent
-        opacity={0.34}
+        opacity={0.12}
         depthWrite={false}
-        blending={THREE.AdditiveBlending}
+        blending={THREE.NormalBlending}
         toneMapped={false}
       />
     </mesh>
@@ -109,7 +111,7 @@ function StarfieldSky() {
       <sphereGeometry args={[2300, 64, 64]} />
       <meshBasicMaterial
         map={starfieldMap || undefined}
-        color={starfieldMap ? '#ffffff' : '#0b1229'}
+        color="#1a2543"
         side={THREE.BackSide}
         toneMapped={false}
       />
@@ -155,7 +157,7 @@ function Scene({
       onCreated={({ gl: renderer }) => {
         renderer.outputColorSpace = THREE.SRGBColorSpace
         renderer.toneMapping = THREE.ACESFilmicToneMapping
-        renderer.toneMappingExposure = 1
+        renderer.toneMappingExposure = 0.72
       }}
       onPointerMissed={() => {
         if (cameraMode === 'orbit' && !isSelectionLocked) {
@@ -175,7 +177,7 @@ function Scene({
         intensity={0.15}
         color="#9bb8ff"
       />
-      <Environment preset="night" blur={0.5} background={false} intensity={0.34} />
+      <Environment preset="night" blur={0.5} background={false} intensity={0.18} />
 
       <SolarSystem
         selectedObjectId={selectedObjectId}
@@ -208,16 +210,17 @@ function Scene({
         onCameraModeChange={onCameraModeChange}
       />
 
-      <EffectComposer multisampling={0} depthBuffer stencilBuffer={false}>
-        <Bloom
-          mipmapBlur
-          intensity={2.05}
-          luminanceThreshold={0.18}
-          luminanceSmoothing={0.34}
-          radius={0.92}
-        />
-        <Vignette offset={0.14} darkness={0.72} eskil={false} />
-      </EffectComposer>
+      {ENABLE_POSTPROCESSING ? (
+        <EffectComposer multisampling={0} depthBuffer stencilBuffer={false}>
+          <Bloom
+            intensity={0.72}
+            luminanceThreshold={0.46}
+            luminanceSmoothing={0.18}
+            radius={0.55}
+          />
+          <Vignette offset={0.14} darkness={0.58} eskil={false} />
+        </EffectComposer>
+      ) : null}
     </Canvas>
   )
 }

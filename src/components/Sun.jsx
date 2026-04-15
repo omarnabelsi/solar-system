@@ -240,7 +240,7 @@ function Sun({ radius = 8.5, isPaused = false, trackRef }) {
 
       <pointLight
         position={[0, 0, 0]}
-        intensity={5400}
+        intensity={2200}
         color="#ffd6a3"
         distance={0}
         decay={2}
